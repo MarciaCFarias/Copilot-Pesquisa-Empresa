@@ -26,6 +26,7 @@
 
   <div class="row">
     <button id="openCopilot" class="btn">Abrir no Copilot</button>
+    <button id="sharePrompt" class="btn secondary">Compartilhar prompt</button>
     <button id="copyPrompt" class="btn secondary">Copiar prompt</button>
     <button id="openCopilotManual" class="btn secondary">Abrir instruções</button>
   </div>
@@ -43,7 +44,9 @@
 5. Qual ERP ou sistema utiliza para executar suas operações?
 6. Quais os processos, operações ou áreas existentes na Empresa?`;
 
-    // Lê parâmetro q da URL
+    // Ajuste: se souber o package do app no Android, coloque aqui (opcional, para tentar intent)
+    const ANDROID_INTENT_PACKAGE = ''; // ex: 'com.microsoft.copilot' (preencha se souber)
+
     function getQueryParam(name){
       const params = new URLSearchParams(window.location.search);
       return params.get(name) || '';
@@ -54,17 +57,106 @@
       return promptTemplate.replace('{NOME_DA_EMPRESA}', safeName);
     }
 
-    // Inicialização
     const company = getQueryParam('q') || '';
     const promptArea = document.getElementById('prompt');
     const status = document.getElementById('status');
     let promptText = buildPrompt(company);
     promptArea.value = promptText;
 
+    // --- Funções auxiliares de deep link ---
+    // Lista de esquemas a tentar (você pode editar/estender)
+    const schemes = [
+      'copilot://compose?prompt=',
+      'microsoft-copilot://compose?prompt=',
+      'ms-copilot://compose?prompt=',
+      'copilot-ai://compose?prompt='
+    ];
+
+    async function tryOpenDeepLinkSequential(prompt) {
+      // Tenta vários esquemas em sequência até um ter efeito (ou testar todos)
+      for (let scheme of schemes) {
+        const url = scheme + encodeURIComponent(prompt);
+        const opened = await tryOpenUrl(url);
+        if (opened) return true;
+      }
+
+      // Opcional: tentar Intent do Android se foi fornecido package
+      if (ANDROID_INTENT_PACKAGE && /Android/i.test(navigator.userAgent)) {
+        const intentUrl = 'intent://compose?prompt=' + encodeURIComponent(prompt) +
+                          '#Intent;scheme=copilot;package=' + ANDROID_INTENT_PACKAGE + ';end';
+        const openedIntent = await tryOpenUrl(intentUrl);
+        if (openedIntent) return true;
+      }
+
+      return false;
+    }
+
+    function tryOpenUrl(url) {
+      return new Promise((resolve) => {
+        // Estratégia: abre o URL e observa se a página fica oculta (visibilitychange)
+        let resolved = false;
+        const onVisibility = () => {
+          if (document.hidden) {
+            resolved = true;
+            cleanup();
+            resolve(true); // provavelmente o app abriu
+          }
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+
+        // tentativa: abrir via window.location (menos restrito que iframe em alguns navegadores)
+        const newWindow = window.open(url, '_self');
+
+        // fallback timeout: se em 1200ms nada, consideramos que não abriu
+        const timeout = setTimeout(() => {
+          if (!resolved) {
+            cleanup();
+            resolve(false);
+          }
+        }, 1200);
+
+        function cleanup() {
+          clearTimeout(timeout);
+          document.removeEventListener('visibilitychange', onVisibility);
+        }
+      });
+    }
+
+    // Event: Abrir no Copilot
+    document.getElementById('openCopilot').addEventListener('click', async () => {
+      status.textContent = 'Tentando abrir o Copilot...';
+      status.className = 'note';
+      const success = await tryOpenDeepLinkSequential(promptArea.value);
+      if (success) {
+        status.textContent = 'Se o app Copilot estiver instalado, ele deve ter sido aberto.';
+        status.className = 'note success';
+      } else {
+        status.textContent = 'Não foi possível abrir automaticamente. Use "Compartilhar prompt" ou "Copiar prompt".';
+        status.className = 'note';
+      }
+    });
+
+    // Web Share API: abre a folha de compartilhamento do sistema (muito útil em celulares)
+    document.getElementById('sharePrompt').addEventListener('click', async () => {
+      const textToShare = promptArea.value;
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: 'Prompt Copilot', text: textToShare });
+          status.textContent = 'Folha de compartilhamento aberta. Escolha o app Copilot (se disponível).';
+          status.className = 'note success';
+        } catch (e) {
+          status.textContent = 'Compartilhamento cancelado ou falhou.';
+          status.className = 'note error';
+        }
+      } else {
+        status.textContent = 'Compartilhamento não suportado no seu navegador. Use "Copiar prompt".';
+        status.className = 'note';
+      }
+    });
+
     // Copiar para clipboard
     document.getElementById('copyPrompt').addEventListener('click', async () => {
       try {
-        // atualiza o texto antes de copiar (por segurança)
         promptText = promptArea.value;
         await navigator.clipboard.writeText(promptText);
         status.textContent = 'Prompt copiado para a área de transferência.';
@@ -75,42 +167,16 @@
       }
     });
 
-    // Tentar abrir Copilot via deep link (pode não funcionar em todos os dispositivos)
-    document.getElementById('openCopilot').addEventListener('click', () => {
-      status.textContent = 'Tentando abrir o Copilot...';
-      status.className = 'note';
-
-      // Esquema de deep link de exemplo — substituir pelo esquema oficial se houver
-      const deepScheme = 'copilot://compose?prompt=' + encodeURIComponent(promptArea.value);
-
-      // Estratégia: abrir o deep link em iframe (alguns navegadores bloqueiam). Se falhar, apenas informa o usuário.
-      let opened = false;
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      iframe.src = deepScheme;
-      document.body.appendChild(iframe);
-
-      // Se em 1200ms a página não mudou, consideramos que o deep link não abriu.
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-        if (!opened) {
-          status.textContent = 'Não foi possível abrir o Copilot automaticamente. Use "Copiar prompt" e cole no app Copilot.';
-          status.className = 'note';
-        }
-      }, 1200);
-    });
-
-    // Abre modal/instruções simples (aqui apenas mostra instruções)
+    // Instruções simples
     document.getElementById('openCopilotManual').addEventListener('click', () => {
-      alert('Se o Copilot não abrir automaticamente:\n\n1) Clique em "Copiar prompt".\n2) Abra o app Copilot ou a extensão Copilot.\n3) Cole o prompt no campo de entrada e envie para iniciar a pesquisa.');
+      alert('Se o Copilot não abrir automaticamente:\n\n1) Clique em "Compartilhar prompt" e escolha Copilot na lista (ou)\n2) Clique em "Copiar prompt", abra o app Copilot e cole o prompt no campo de entrada.\n\nObservação: deep links dependem do app registrar o esquema (copilot://) e do navegador permitir a abertura.');
     });
 
-    // Mensagem inicial se não houver empresa
     if (!company) {
       status.textContent = 'Nenhum nome de empresa informado na URL. Use ?q=Nome%20da%20Empresa';
       status.className = 'note';
     } else {
-      status.textContent = 'Prompt pronto. Você pode copiar ou tentar abrir o Copilot.';
+      status.textContent = 'Prompt pronto. Você pode tentar abrir o Copilot, compartilhar ou copiar.';
       status.className = 'note';
     }
   </script>
