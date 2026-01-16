@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pesquisa Copilot - Prompt Pré‑preenchido</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;max-width:900px;margin:28px auto;padding:18px;color:#111}
+    h1{font-size:20px;margin-bottom:6px}
+    p{margin:8px 0 16px}
+    textarea{width:100%;height:260px;padding:12px;font-size:14px;box-sizing:border-box}
+    .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+    .btn{background:#0067C5;color:#fff;padding:10px 14px;border-radius:8px;text-decoration:none;border:none;cursor:pointer}
+    .btn.secondary{background:#666}
+    .note{font-size:13px;color:#444;margin-top:12px}
+    .success{color:green}
+    .error{color:#b00020}
+  </style>
+</head>
+<body>
+  <h1>Pesquisa Copilot — Prompt Pré‑preenchido</h1>
+  <p id="intro">A página monta automaticamente o prompt a partir do parâmetro <strong>q</strong> na URL. Ex.: <code>?q=Acme%20Industria%20S.A.</code></p>
+
+  <label for="prompt">Prompt gerado</label>
+  <textarea id="prompt" readonly></textarea>
+
+  <div class="row">
+    <button id="openCopilot" class="btn">Abrir no Copilot</button>
+    <button id="copyPrompt" class="btn secondary">Copiar prompt</button>
+    <button id="openCopilotManual" class="btn secondary">Abrir instruções</button>
+  </div>
+
+  <p class="note" id="status"></p>
+
+  <script>
+    // Template do prompt (edite se quiser)
+    const promptTemplate = `Por favor pesquisar sobre a Empresa {NOME_DA_EMPRESA} e trazer as informações, conforme os tópicos abaixo, de forma objetiva e clara. Após os destaques dos tópicos, gerar no final um resumo e destacar as oportunidades para automação e/ou inovação, os pontos de atenção, riscos e outras informações que achar relevante. Gerar também um arquivo Word mantendo o formato e estrutura e colocando o título no arquivo com o nome da Empresa pesquisada.
+
+1. Qual ramo ou atividade da Empresa?
+2. Qual produto ou serviço principal?
+3. Qual a volumetria da operação mensal?
+4. Qual faturamento mensal e anual?
+5. Qual ERP ou sistema utiliza para executar suas operações?
+6. Quais os processos, operações ou áreas existentes na Empresa?`;
+
+    // Lê parâmetro q da URL
+    function getQueryParam(name){
+      const params = new URLSearchParams(window.location.search);
+      return params.get(name) || '';
+    }
+
+    function buildPrompt(companyName){
+      const safeName = companyName.trim() || '{NOME_DA_EMPRESA}';
+      return promptTemplate.replace('{NOME_DA_EMPRESA}', safeName);
+    }
+
+    // Inicialização
+    const company = getQueryParam('q') || '';
+    const promptArea = document.getElementById('prompt');
+    const status = document.getElementById('status');
+    let promptText = buildPrompt(company);
+    promptArea.value = promptText;
+
+    // Copiar para clipboard
+    document.getElementById('copyPrompt').addEventListener('click', async () => {
+      try {
+        // atualiza o texto antes de copiar (por segurança)
+        promptText = promptArea.value;
+        await navigator.clipboard.writeText(promptText);
+        status.textContent = 'Prompt copiado para a área de transferência.';
+        status.className = 'note success';
+      } catch (e) {
+        status.textContent = 'Não foi possível copiar automaticamente. Selecione o texto e copie manualmente.';
+        status.className = 'note error';
+      }
+    });
+
+    // Tentar abrir Copilot via deep link (pode não funcionar em todos os dispositivos)
+    document.getElementById('openCopilot').addEventListener('click', () => {
+      status.textContent = 'Tentando abrir o Copilot...';
+      status.className = 'note';
+
+      // Esquema de deep link de exemplo — substituir pelo esquema oficial se houver
+      const deepScheme = 'copilot://compose?prompt=' + encodeURIComponent(promptArea.value);
+
+      // Estratégia: abrir o deep link em iframe (alguns navegadores bloqueiam). Se falhar, apenas informa o usuário.
+      let opened = false;
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.src = deepScheme;
+      document.body.appendChild(iframe);
+
+      // Se em 1200ms a página não mudou, consideramos que o deep link não abriu.
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+        if (!opened) {
+          status.textContent = 'Não foi possível abrir o Copilot automaticamente. Use "Copiar prompt" e cole no app Copilot.';
+          status.className = 'note';
+        }
+      }, 1200);
+    });
+
+    // Abre modal/instruções simples (aqui apenas mostra instruções)
+    document.getElementById('openCopilotManual').addEventListener('click', () => {
+      alert('Se o Copilot não abrir automaticamente:\n\n1) Clique em "Copiar prompt".\n2) Abra o app Copilot ou a extensão Copilot.\n3) Cole o prompt no campo de entrada e envie para iniciar a pesquisa.');
+    });
+
+    // Mensagem inicial se não houver empresa
+    if (!company) {
+      status.textContent = 'Nenhum nome de empresa informado na URL. Use ?q=Nome%20da%20Empresa';
+      status.className = 'note';
+    } else {
+      status.textContent = 'Prompt pronto. Você pode copiar ou tentar abrir o Copilot.';
+      status.className = 'note';
+    }
+  </script>
+</body>
+</html>
